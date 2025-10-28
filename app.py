@@ -8,26 +8,31 @@ import matplotlib.pyplot as plt
 from sklearn.decomposition import LatentDirichletAllocation
 from sklearn.feature_extraction.text import CountVectorizer
 import nltk
+from nltk.sentiment.vader import SentimentIntensityAnalyzer
+from nltk.corpus import stopwords
 
 # Ensure nltk resources are available
 nltk.download('vader_lexicon')
+nltk.download('stopwords')
 
 # Load the model and tokenizer from the saved files
 model_directory = "fine_tuned_bert"  # Replace with the correct path to your model directory
-model = AutoModelForSequenceClassification.from_pretrained(model_directory)
+sid =SentimentIntensityAnalyzer()
 tokenizer = AutoTokenizer.from_pretrained(model_directory)
 
 # Load pre-trained T5 model for summarization
 summarizer = pipeline("summarization", model="t5-small")
 
-# Sentiment analysis function for general sentiment (text as a whole)
+# Function to predict sentiment using VADER
 def predict_sentiment(text):
-    inputs = tokenizer(text, return_tensors="pt", truncation=True, padding=True, max_length=512)
-    with torch.no_grad():
-        logits = model(**inputs).logits
-    sentiment = torch.argmax(logits, dim=1).item()  # Get the index of the highest score
-    return sentiment
-
+    sentiment_score = sid.polarity_scores(text)
+    return sentiment_score['compound']
+    # if sentiment_score['compound'] >= 0:
+    #     return "Positive"
+    # elif sentiment_score['compound'] < 0:
+    #     return "Negative"
+    # else:
+    #     return "None"
 # Extract aspects using LDA
 def extract_aspects(text, n_topics=3, n_words=5):
     # Tokenize text and apply LDA
@@ -64,6 +69,25 @@ def generate_wordcloud(text):
     # Now use st.pyplot with the figure object
     st.pyplot(fig)
 
+import re
+
+# For this purpose, I defined the following function that would clean and preprocess the text.
+def clean_text(text):
+    # Remove HTML tags
+    text = re.sub(r'<.*?>', '', text)
+    
+    # # Excluding special Characters & punctuation
+    text = re.sub(r'[^\w\s]', '', text)
+    
+    # Convert to lowercase
+    text = text.lower()
+    
+    # Remove stopwords
+    stop_words = set(stopwords.words('english'))
+    text = ' '.join([word for word in text.split() if word not in stop_words])
+    
+    return text
+
 # Summarize the input text using T5
 def summarize_text(text):
     summary = summarizer(text, max_length=150, min_length=50, do_sample=False)
@@ -81,19 +105,20 @@ summarize_button = st.button("Summarize Text")
 if input_text:    
     
     if analyze_button:
+        input_text  = clean_text(input_text)
         # Perform general sentiment analysis and aspect-based sentiment analysis
         general_sentiment = predict_sentiment(input_text)
-        general_sentiment_label = "Positive" if general_sentiment == 1 else "Negative"
+        general_sentiment_label = "Positive" if general_sentiment >= 0 else "Negative"
         st.write(f"General Sentiment: {general_sentiment_label}")
         
         # Extract aspects using LDA
-        aspects = extract_aspects(input_text, n_topics=3, n_words=5)
+        aspects = extract_aspects(input_text, n_topics=10, n_words=10)
         
         # Predict sentiment for each aspect and store the results
         sentiment_data = []
         for aspect in aspects:
             sentiment = predict_sentiment(aspect)
-            sentiment_label = "Positive" if sentiment == 1 else "Negative"
+            sentiment_label = "Positive" if sentiment >= 0 else "Negative"
             sentiment_data.append([aspect, sentiment_label, 1])  # Each aspect gets a count of 1 (for visualization)
         
         # Visualize the sentiment distribution for each aspect
